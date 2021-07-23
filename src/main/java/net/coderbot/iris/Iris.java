@@ -9,6 +9,7 @@ import com.google.common.base.Throwables;
 import net.coderbot.iris.config.IrisConfig;
 import net.coderbot.iris.gui.screen.ShaderPackScreen;
 import net.coderbot.iris.pipeline.*;
+import net.coderbot.iris.pipeline.newshader.NewWorldRenderingPipeline;
 import net.coderbot.iris.shaderpack.DimensionId;
 import net.coderbot.iris.shaderpack.ProgramSet;
 import net.coderbot.iris.shaderpack.ShaderPack;
@@ -22,7 +23,7 @@ import org.apache.logging.log4j.Logger;
 import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.options.KeyBinding;
+import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.text.TranslatableText;
 import net.minecraft.util.Formatting;
@@ -60,12 +61,12 @@ public class Iris implements ClientModInitializer {
 				modContainer -> {
 					String versionString = modContainer.getMetadata().getVersion().getFriendlyString();
 
-					// A lot of people are reporting visual bugs with Iris + Sodium. This makes it so that if we don't have
-					// the right fork of Sodium, it will just crash.
-					if (!versionString.startsWith("0.2.0+IRIS3")) {
-						throw new IllegalStateException("You do not have a compatible version of Sodium installed! You have " + versionString + " but 0.2.0+IRIS3 is expected");
-					}
+				// A lot of people are reporting visual bugs with Iris + Sodium. This makes it so that if we don't have
+				// the right fork of Sodium, it will just crash.
+				if (!versionString.startsWith("0.3.0+IRIS1")) {
+					throw new IllegalStateException("You do not have a compatible version of Sodium installed! You have " + versionString + " but 0.3.0+IRIS1 is expected");
 				}
+			}
 		);
 
 		FabricLoader.getInstance().getModContainer("iris").ifPresent(
@@ -133,7 +134,7 @@ public class Iris implements ClientModInitializer {
 					currentPackName = "(off) [fallback, check your logs for errors]";
 				}
 			} else if (shaderpackScreenKeybind.wasPressed()) {
-				minecraftClient.openScreen(new ShaderPackScreen(null));
+				minecraftClient.setScreen(new ShaderPackScreen(null));
 			}
 		});
 
@@ -401,7 +402,8 @@ public class Iris implements ClientModInitializer {
 
 		ProgramSet programs = currentPack.getProgramSet(dimensionId);
 
-		try {
+		// TODO(21w10a): Bring back the old world rendering pipelines
+		/*try {
 			if (internal) {
 				return new InternalWorldRenderingPipeline(programs);
 			} else {
@@ -412,6 +414,13 @@ public class Iris implements ClientModInitializer {
 			// TODO: This should be reverted if a dimension change causes shaders to compile again
 			currentPackName = "(off) [fallback, check your logs for details]";
 
+			return new FixedFunctionWorldRenderingPipeline();
+		}*/
+
+		try {
+			return new NewWorldRenderingPipeline(programs);
+		} catch (Throwable e) {
+			Iris.logger.error("Couldn't load NewWorldRenderingPipeline, falling back to vanilla shaders.", e);
 			return new FixedFunctionWorldRenderingPipeline();
 		}
 	}

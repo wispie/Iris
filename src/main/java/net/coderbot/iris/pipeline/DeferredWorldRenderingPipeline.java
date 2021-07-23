@@ -10,7 +10,7 @@ import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.coderbot.iris.Iris;
 import net.coderbot.iris.block_rendering.BlockRenderingSettings;
-import net.coderbot.iris.gl.blending.AlphaTestOverride;
+import net.coderbot.iris.gl.blending.AlphaTest;
 import net.coderbot.iris.gl.framebuffer.GlFramebuffer;
 import net.coderbot.iris.gl.program.Program;
 import net.coderbot.iris.gl.program.ProgramBuilder;
@@ -138,7 +138,7 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 		BlockRenderingSettings.INSTANCE.setUseSeparateAo(programs.getPackDirectives().shouldUseSeparateAo());
 
 		// Don't clobber anything in texture unit 0. It probably won't cause issues, but we're just being cautious here.
-		GlStateManager.activeTexture(GL20C.GL_TEXTURE2);
+		GlStateManager.glActiveTexture(GL20C.GL_TEXTURE2);
 
 		// Create some placeholder PBR textures for now
 		normals = new NativeImageBackedSingleColorTexture(127, 127, 255, 255);
@@ -159,7 +159,7 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 			return new NativeImageBackedNoiseTexture(noiseTextureResolution);
 		});
 
-		GlStateManager.activeTexture(GL20C.GL_TEXTURE0);
+		GlStateManager.glActiveTexture(GL20C.GL_TEXTURE0);
 
 		// TODO: Change this once earlier passes are implemented.
 		ImmutableSet<Integer> flippedBeforeTerrain = ImmutableSet.of();
@@ -255,7 +255,10 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 			this.shadowMapRenderer = new EmptyShadowMapRenderer(programs.getPackDirectives().getShadowDirectives().getResolution());
 		}
 
-		this.sodiumTerrainPipeline = new SodiumTerrainPipeline(programs, createTerrainSamplers, createShadowTerrainSamplers);
+		this.sodiumTerrainPipeline = new SodiumTerrainPipeline(programs, createTerrainSamplers,
+				createShadowTerrainSamplers, renderTargets, flippedBeforeTranslucent, flippedAfterTranslucent,
+				shadowMapRenderer instanceof ShadowRenderer ? ((ShadowRenderer) shadowMapRenderer).getFramebuffer() :
+						null);
 	}
 
 	private void checkWorld() {
@@ -487,7 +490,7 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 		builder.bindAttributeLocation(11, "mc_midTexCoord");
 		builder.bindAttributeLocation(12, "at_tangent");
 
-		AlphaTestOverride alphaTestOverride = source.getDirectives().getAlphaTestOverride().orElse(null);
+		AlphaTest alphaTestOverride = source.getDirectives().getAlphaTestOverride().orElse(null);
 
 		if (alphaTestOverride != null) {
 			Iris.logger.info("Configured alpha test override for " + source.getName() + ": " + alphaTestOverride);
@@ -505,10 +508,10 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 		private final Program program;
 		private final GlFramebuffer framebufferBeforeTranslucents;
 		private final GlFramebuffer framebufferAfterTranslucents;
-		private final AlphaTestOverride alphaTestOverride;
+		private final AlphaTest alphaTestOverride;
 		private final boolean disableBlend;
 
-		private Pass(Program program, GlFramebuffer framebufferBeforeTranslucents, GlFramebuffer framebufferAfterTranslucents, AlphaTestOverride alphaTestOverride, boolean disableBlend) {
+		private Pass(Program program, GlFramebuffer framebufferBeforeTranslucents, GlFramebuffer framebufferAfterTranslucents, AlphaTest alphaTestOverride, boolean disableBlend) {
 			this.program = program;
 			this.framebufferBeforeTranslucents = framebufferBeforeTranslucents;
 			this.framebufferAfterTranslucents = framebufferAfterTranslucents;
@@ -532,13 +535,13 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 			}
 
 			if (disableBlend) {
-				GlStateManager.disableBlend();
+				GlStateManager._disableBlend();
 			}
 		}
 
 		public void stopUsing() {
 			if (alphaTestOverride != null) {
-				AlphaTestOverride.teardown();
+				AlphaTest.teardown();
 			}
 		}
 
@@ -562,9 +565,9 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 		finalPassRenderer.destroy();
 
 		// Make sure that any custom framebuffers are not bound before destroying render targets
-		GlStateManager.bindFramebuffer(GL30C.GL_READ_FRAMEBUFFER, 0);
-		GlStateManager.bindFramebuffer(GL30C.GL_DRAW_FRAMEBUFFER, 0);
-		GlStateManager.bindFramebuffer(GL30C.GL_FRAMEBUFFER, 0);
+		GlStateManager._glBindFramebuffer(GL30C.GL_READ_FRAMEBUFFER, 0);
+		GlStateManager._glBindFramebuffer(GL30C.GL_DRAW_FRAMEBUFFER, 0);
+		GlStateManager._glBindFramebuffer(GL30C.GL_FRAMEBUFFER, 0);
 
 		MinecraftClient.getInstance().getFramebuffer().beginWrite(false);
 
@@ -646,15 +649,14 @@ public class DeferredWorldRenderingPipeline implements WorldRenderingPipeline {
 		// We need to copy the current depth texture so that depthtex1 and depthtex2 can contain the depth values for
 		// all non-translucent content, as required.
 		baseline.bindAsReadBuffer();
-		GlStateManager.bindTexture(renderTargets.getDepthTextureNoTranslucents().getTextureId());
+		GlStateManager._bindTexture(renderTargets.getDepthTextureNoTranslucents().getTextureId());
 		GL20C.glCopyTexImage2D(GL20C.GL_TEXTURE_2D, 0, GL20C.GL_DEPTH_COMPONENT, 0, 0, renderTargets.getCurrentWidth(), renderTargets.getCurrentHeight(), 0);
-		GlStateManager.bindTexture(0);
+		GlStateManager._bindTexture(0);
 
 		deferredRenderer.renderAll();
 		Program.unbind();
 
 		RenderSystem.enableBlend();
-		RenderSystem.enableAlphaTest();
 
 		MinecraftClient.getInstance().gameRenderer.getLightmapTextureManager().enable();
 		MinecraftClient.getInstance().gameRenderer.getOverlayTexture().setupOverlayColor();
